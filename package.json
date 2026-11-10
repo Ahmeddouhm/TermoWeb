@@ -1,0 +1,17 @@
+{
+  "name": "local-web-terminal",
+  "version": "1.0.0",
+  "description": "Local web-based Windows terminal (cmd / PowerShell) with Arabic RTL/BiDi support and Linux aliases",
+  "main": "server.js",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "open": "node server.js --open"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

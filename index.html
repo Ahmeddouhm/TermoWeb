@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TermoWeb</title>
+<link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600&family=Cascadia+Code:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --font: 'Cascadia Code', 'Cairo', 'Cascadia Mono', Consolas, 'Courier New', monospace;
+    --ui-font: 'Cairo', 'Segoe UI', system-ui, sans-serif;
+    --fs: 15px;
+
+    /* ANSI palette (Campbell) */
+    --a0:#0c0c0c; --a1:#c50f1f; --a2:#13a10e; --a3:#c19c00; --a4:#0037da; --a5:#881798; --a6:#3a96dd; --a7:#cccccc;
+    --a8:#767676; --a9:#e74856; --a10:#16c60c; --a11:#f9f1a5; --a12:#3b78ff; --a13:#b4009e; --a14:#61d6d6; --a15:#f2f2f2;
+  }
+
+  /* ---------- Colour presets ---------- */
+  body[data-theme="classic"] { --bg:#0c0c0c; --fg:#cccccc; --prompt:#cccccc; --err:#e74856; --sel:#3d3d3d; --bar:#1b1b1b; --bar-fg:#d8d8d8; --line:#2c2c2c; --accent:#3b78ff; }
+  body[data-theme="matrix"]  { --bg:#000000; --fg:#1fe03c; --prompt:#1fe03c; --err:#ff5c5c; --sel:#0c4a1a; --bar:#071007; --bar-fg:#7dff93; --line:#12361a; --accent:#1fe03c; }
+  body[data-theme="psblue"]  { --bg:#012456; --fg:#eeedf0; --prompt:#eeedf0; --err:#ff7a7a; --sel:#2a5ba8; --bar:#001a40; --bar-fg:#dbe6f7; --line:#0b3578; --accent:#ffd866; }
+  body[data-theme="ubuntu"]  { --bg:#300a24; --fg:#eeeeec; --prompt:#8ae234; --err:#ff6b5e; --sel:#6b2d58; --bar:#220719; --bar-fg:#f0e2ec; --line:#4a1a3a; --accent:#e95420; }
+
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column;
+    background: var(--bg); color: var(--fg);
+    font-family: var(--ui-font);
+    transition: background-color .2s;
+  }
+  ::selection { background: var(--sel); color: inherit; }
+
+  /* ---------- Header ---------- */
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+    padding: 8px 14px;
+    background: var(--bar); color: var(--bar-fg);
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .brand { font-weight: 600; font-size: 14px; margin-inline-end: 4px; }
+  .status { display: inline-flex; align-items: center; gap: 7px; min-width: 104px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #d13438; box-shadow: 0 0 0 2px rgba(255,255,255,.08); }
+  .dot.on { background: #2ecc71; }
+  .dot.wait { background: #f5a623; }
+  .spacer { flex: 1 1 auto; }
+  label.ctl { display: inline-flex; align-items: center; gap: 6px; }
+  select, button {
+    font: inherit; color: var(--bar-fg);
+    background: rgba(255,255,255,.07);
+    border: 1px solid var(--line);
+    border-radius: 4px; padding: 4px 9px;
+    cursor: pointer;
+  }
+  select option { color: #111; background: #fff; }
+  button:hover, select:hover { background: rgba(255,255,255,.14); }
+  button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  button.danger:hover { border-color: #d13438; }
+
+  /* ---------- Terminal ---------- */
+  #term {
+    flex: 1 1 auto; overflow-y: auto; overflow-x: hidden;
+    padding: 10px 16px 24px;
+    font-family: var(--font); font-size: var(--fs); line-height: 1.55;
+    tab-size: 8;
+    cursor: text;
+  }
+  #term::-webkit-scrollbar { width: 12px; }
+  #term::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+
+  .line { white-space: pre-wrap; overflow-wrap: anywhere; min-height: 1.55em; text-align: start; }
+  .line.sys { opacity: .75; font-style: italic; }
+  .line.sys.err { color: var(--err); opacity: 1; }
+
+  /* Every text line: auto direction + plaintext bidi => Arabic aligns right, English left */
+  [data-bidi] { unicode-bidi: plaintext; text-align: start; }
+  body[data-dir="ltr"] [data-bidi], body[data-dir="rtl"] [data-bidi] { unicode-bidi: isolate; }
+
+  /* Echoed command: [prompt][typed text] — layout row is always LTR, text gets its own bidi */
+  .line.echo { display: flex; align-items: baseline; gap: .6ch; direction: ltr; }
+  .line.echo .pre { white-space: pre-wrap; flex: 0 1 auto; max-width: 70%; }
+  .line.echo .txt { flex: 1 1 auto; white-space: pre-wrap; overflow-wrap: anywhere; min-width: 0; }
+
+  /* Prompt label: always isolated, always LTR so paths never scramble next to Arabic input */
+  .prompt {
+    unicode-bidi: isolate; direction: ltr; text-align: left;
+    white-space: nowrap; color: var(--prompt); font-weight: 600;
+    flex: 0 1 auto; max-width: 55%; overflow: hidden; text-overflow: ellipsis;
+  }
+
+  #inputRow { display: flex; align-items: baseline; gap: .6ch; direction: ltr; }
+  #partial { white-space: pre-wrap; overflow-wrap: anywhere; flex: 0 1 auto; max-width: 70%; }
+  #partial:empty { display: none; }
+  #cmd {
+    flex: 1 1 8ch; min-width: 6ch; width: 100%;
+    background: transparent; border: 0; outline: 0; padding: 0; margin: 0;
+    color: inherit; font: inherit; caret-color: var(--fg);
+  }
+
+  /* Tab-completion suggestions */
+  .line.sugg { display: flex; flex-wrap: wrap; gap: 0 2.5ch; direction: ltr; }
+  .line.sugg span { white-space: pre; }
+  .line.sugg .dir { color: var(--accent); }
+
+  .err { color: var(--err); }
+  .b { font-weight: 600; } .i { font-style: italic; } .u { text-decoration: underline; } .d { opacity: .7; }
+
+  @media (max-width: 640px) {
+    header { padding: 6px 10px; }
+    #term { padding: 8px 10px 20px; }
+  }
+  @media (prefers-reduced-motion: reduce) { body { transition: none; } }
+</style>
+</head>
+<body data-theme="classic" data-dir="auto">
+
+<header>
+  <span class="brand">TermoWeb</span>
+  <span class="status" role="status" aria-live="polite"><span class="dot wait" id="dot"></span><span id="statusText">Connecting…</span></span>
+
+  <label class="ctl">Shell
+    <select id="shellSel" aria-label="Shell">
+      <option value="cmd">CMD</option>
+      <option value="powershell">PowerShell</option>
+    </select>
+  </label>
+  <label class="ctl">Direction
+    <select id="dirSel" aria-label="Text direction">
+      <option value="auto">Auto BiDi</option>
+      <option value="ltr">Force LTR</option>
+      <option value="rtl">Force RTL</option>
+    </select>
+  </label>
+  <label class="ctl">Colors
+    <select id="themeSel" aria-label="Color preset">
+      <option value="classic">Classic CMD</option>
+      <option value="matrix">Matrix Green 0A</option>
+      <option value="psblue">Blue PowerShell</option>
+      <option value="ubuntu">Ubuntu Dark</option>
+    </select>
+  </label>
+
+  <span class="spacer"></span>
+
+  <button id="btnInt" class="danger" title="Interrupt the running program (Ctrl+C)">Kill</button>
+  <button id="btnClear" title="Clear the screen (Ctrl+L)">Clear</button>
+  <button id="btnReconnect" title="Reconnect to the server and restart the shell">Reconnect</button>
+</header>
+
+<main id="term" aria-label="Terminal output">
+  <div id="screen"></div>
+  <div id="inputRow">
+    <span id="partial" data-bidi dir="auto"></span>
+    <span id="prompt" class="prompt" hidden></span>
+    <input id="cmd" data-bidi dir="auto" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" aria-label="Command input">
+  </div>
+</main>
+
+<script>
+(() => {
+'use strict';
+
+const TOKEN = '__SESSION_TOKEN__';
+const MAX_LINES = 5000;
+
+/* ---------------- DOM ---------------- */
+const $ = (id) => document.getElementById(id);
+const term = $('term'), screenEl = $('screen'), partialEl = $('partial'), promptEl = $('prompt'), cmd = $('cmd');
+const dot = $('dot'), statusText = $('statusText');
+const shellSel = $('shellSel'), dirSel = $('dirSel'), themeSel = $('themeSel');
+
+/* ---------------- Persistence ---------------- */
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('wt.' + k); return v === null ? d : v; } catch (_) { return d; } },
+  set(k, v) { try { localStorage.setItem('wt.' + k, v); } catch (_) {} },
+};
+
+const state = {
+  shell: store.get('shell', 'cmd'),
+  dir: store.get('dir', 'auto'),
+  theme: store.get('theme', 'classic'),
+  idle: false,          // true while the shell is showing its prompt
+  cwd: '',
+  ws: null,
+  needReload: false,
+  history: [],
+  hIdx: -1,
+  draft: '',
+};
+try { state.history = JSON.parse(store.get('history', '[]')).slice(-300); } catch (_) { state.history = []; }
+if (!['cmd', 'powershell'].includes(state.shell)) state.shell = 'cmd';
+
+/* ---------------- Direction (BiDi) ---------------- */
+const dirAttr = () => (state.dir === 'auto' ? 'auto' : state.dir);
+
+function applyDir() {
+  document.body.dataset.dir = state.dir;
+  document.querySelectorAll('[data-bidi]').forEach((el) => el.setAttribute('dir', dirAttr()));
+}
+
+/* ---------------- Theme ---------------- */
+function applyTheme() { document.body.dataset.theme = state.theme; }
+
+/* ---------------- ANSI / text rendering ---------------- */
+const sgr = { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false };
+const resetSgr = () => Object.assign(sgr, { fg: null, bg: null, bold: false, dim: false, italic: false, underline: false, inverse: false });
+
+function color256(n) {
+  if (n < 16) return `var(--a${n})`;
+  if (n < 232) {
+    n -= 16;
+    const f = (x) => (x ? 55 + x * 40 : 0);
+    return `rgb(${f(Math.floor(n / 36))},${f(Math.floor(n / 6) % 6)},${f(n % 6)})`;
+  }
+  const g = 8 + (n - 232) * 10;
+  return `rgb(${g},${g},${g})`;
+}
+
+function applySgr(params) {
+  const p = params === '' ? [0] : params.split(';').map((x) => (x === '' ? 0 : parseInt(x, 10)));
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
+    if (c === 0) resetSgr();
+    else if (c === 1) sgr.bold = true;
+    else if (c === 2) sgr.dim = true;
+    else if (c === 3) sgr.italic = true;
+    else if (c === 4) sgr.underline = true;
+    else if (c === 7) sgr.inverse = true;
+    else if (c === 22) { sgr.bold = false; sgr.dim = false; }
+    else if (c === 23) sgr.italic = false;
+    else if (c === 24) sgr.underline = false;
+    else if (c === 27) sgr.inverse = false;
+    else if (c >= 30 && c <= 37) sgr.fg = `var(--a${c - 30})`;
+    else if (c === 39) sgr.fg = null;
+    else if (c >= 40 && c <= 47) sgr.bg = `var(--a${c - 40})`;
+    else if (c === 49) sgr.bg = null;
+    else if (c >= 90 && c <= 97) sgr.fg = `var(--a${c - 90 + 8})`;
+    else if (c >= 100 && c <= 107) sgr.bg = `var(--a${c - 100 + 8})`;
+    else if (c === 38 || c === 48) {
+      const key = c === 38 ? 'fg' : 'bg';
+      if (p[i + 1] === 5) { sgr[key] = color256(p[i + 2] | 0); i += 2; }
+      else if (p[i + 1] === 2) { sgr[key] = `rgb(${p[i + 2] | 0},${p[i + 3] | 0},${p[i + 4] | 0})`; i += 4; }
+    }
+  }
+}
+
+function styleKey(isErr) {
+  return [isErr ? 1 : 0, sgr.fg, sgr.bg, +sgr.bold, +sgr.dim, +sgr.italic, +sgr.underline, +sgr.inverse].join('|');
+}
+
+function appendText(text, isErr) {
+  if (!text) return;
+  const key = styleKey(isErr);
+  const last = partialEl.lastChild;
+  if (last && last.dataset && last.dataset.k === key) { last.firstChild.nodeValue += text; return; }
+  const s = document.createElement('span');
+  s.dataset.k = key;
+  s.textContent = text;
+  if (isErr && !sgr.fg && !sgr.inverse) s.classList.add('err');
+  if (sgr.bold) s.classList.add('b');
+  if (sgr.italic) s.classList.add('i');
+  if (sgr.underline) s.classList.add('u');
+  if (sgr.dim) s.classList.add('d');
+  let fg = sgr.fg, bg = sgr.bg;
+  if (sgr.inverse) { const f = fg || 'var(--fg)', b = bg || 'var(--bg)'; fg = b; bg = f; }
+  if (fg) s.style.color = fg;
+  if (bg) s.style.backgroundColor = bg;
+  partialEl.appendChild(s);
+}
+
+function trimScreen() {
+  const extra = screenEl.childElementCount - MAX_LINES;
+  for (let i = 0; i < extra; i++) screenEl.removeChild(screenEl.firstElementChild);
+}
+
+function newline() {
+  const line = document.createElement('div');
+  line.className = 'line';
+  line.setAttribute('data-bidi', '');
+  line.setAttribute('dir', dirAttr());
+  while (partialEl.firstChild) line.appendChild(partialEl.firstChild);
+  screenEl.appendChild(line);
+  trimScreen();
+}
+
+function flushPartial() { if (partialEl.firstChild) newline(); }
+
+function clearScreen() {
+  screenEl.textContent = '';
+  partialEl.textContent = '';
+  carry = '';
+}
+
+/* Stream parser — handles escape sequences split across chunks */
+let carry = '';
+function feed(input, isErr) {
+  const stick = term.scrollHeight - term.scrollTop - term.clientHeight < 80;
+  let text = (carry + input).replace(/\uFEFF/g, '');
+  carry = '';
+  let out = '';
+  const flushOut = () => { if (out) { appendText(out, isErr); out = ''; } };
+
+  for (let i = 0; i < text.length;) {
+    const ch = text[i];
+
+    if (ch === '\x1b') {
+      flushOut();
+      if (i + 1 >= text.length) { carry = text.slice(i); break; }
+      const nx = text[i + 1];
+      if (nx === '[') {
+        const m = /^\x1b\[([0-9;?]*)([ -\/]*)([@-~])/.exec(text.slice(i, i + 80));
+        if (!m) {
+          if (text.length - i < 80) { carry = text.slice(i); break; }
+          i += 2; continue;
+        }
+        const final = m[3];
+        if (final === 'm') applySgr(m[1]);
+        else if (final === 'J' && (m[1] === '2' || m[1] === '3')) clearScreen();
+        i += m[0].length;
+      } else if (nx === ']') {
+        const bel = text.indexOf('\x07', i + 2);
+        const st = text.indexOf('\x1b\\', i + 2);
+        const end = bel !== -1 && (st === -1 || bel < st) ? bel + 1 : st !== -1 ? st + 2 : -1;
+        if (end === -1) { carry = text.slice(i); break; }
+        i = end;
+      } else {
+        i += 2;
+      }
+      continue;
+    }
+
+    if (ch === '\r') {
+      if (i + 1 >= text.length) { carry = '\r'; break; }
+      if (text[i + 1] === '\n') { i++; continue; } // \r\n handled by the \n branch
+      flushOut();
+      partialEl.textContent = ''; // lone CR: overwrite current line (progress bars)
+      i++; continue;
+    }
+    if (ch === '\n') { flushOut(); newline(); i++; continue; }
+    if (ch === '\f') { flushOut(); clearScreen(); i++; continue; }
+    if (ch === '\x07' || ch === '\b' || ch === '\0') { i++; continue; }
+
+    out += ch;
+    i++;
+  }
+  flushOut();
+  if (stick) scrollDown();
+}
+
+let scrollQueued = false;
+function scrollDown() {
+  if (scrollQueued) return;
+  scrollQueued = true;
+  requestAnimationFrame(() => { scrollQueued = false; term.scrollTop = term.scrollHeight; });
+}
+
+function sysLine(text, kind) {
+  flushPartial();
+  const line = document.createElement('div');
+  line.className = 'line sys' + (kind === 'err' ? ' err' : '');
+  line.setAttribute('data-bidi', '');
+  line.setAttribute('dir', dirAttr());
+  line.textContent = text;
+  screenEl.appendChild(line);
+  trimScreen();
+  scrollDown();
+}
+
+/* Echo what the user typed (the shell itself does not echo piped input) */
+function echoLine(preNodes, typed) {
+  const row = document.createElement('div');
+  row.className = 'line echo';
+  const pre = document.createElement('span');
+  pre.className = 'pre';
+  preNodes.forEach((n) => pre.appendChild(n));
+  const txt = document.createElement('span');
+  txt.className = 'txt';
+  txt.setAttribute('data-bidi', '');
+  txt.setAttribute('dir', dirAttr());
+  txt.textContent = typed;
+  if (pre.childNodes.length) row.appendChild(pre);
+  row.appendChild(txt);
+  screenEl.appendChild(row);
+  trimScreen();
+}
+
+function promptNode() {
+  const s = document.createElement('span');
+  s.className = 'prompt';
+  s.textContent = promptLabel();
+  return s;
+}
+
+const promptLabel = () => (state.shell === 'powershell' ? 'PS ' : '') + state.cwd + '>';
+
+function updatePrompt() {
+  promptEl.textContent = state.cwd ? promptLabel() : '';
+  promptEl.title = promptEl.textContent;
+  promptEl.hidden = !(state.idle && state.cwd);
+}
+
+/* ---------------- WebSocket ---------------- */
+function setStatus(kind) {
+  dot.className = 'dot' + (kind === 'connected' ? ' on' : kind === 'connecting' ? ' wait' : '');
+  statusText.textContent = kind === 'connected' ? 'Connected' : kind === 'connecting' ? 'Connecting…' : 'Disconnected';
+}
+
+const sendJSON = (obj) => { if (state.ws && state.ws.readyState === 1) state.ws.send(JSON.stringify(obj)); };
+
+function connect(note) {
+  if (state.ws && state.ws.readyState <= 1) { const old = state.ws; state.ws = null; try { old.close(); } catch (_) {} }
+  setStatus('connecting');
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(TOKEN)}`);
+  state.ws = ws;
+
+  ws.onopen = () => {
+    if (ws !== state.ws) return;
+    setStatus('connected');
+    if (note) sysLine(note);
+    state.idle = false; updatePrompt();
+    sendJSON({ type: 'start', shell: state.shell });
+  };
+  ws.onmessage = (ev) => {
+    if (ws !== state.ws) return;
+    let m; try { m = JSON.parse(ev.data); } catch (_) { return; }
+    onServer(m);
+  };
+  ws.onclose = (ev) => {
+    if (ws !== state.ws) return;
+    setStatus('disconnected');
+    state.idle = false; updatePrompt();
+    if (ev.code === 1008) { state.needReload = true; sysLine('Session token is no longer valid (server restarted?). Press Reconnect to reload the page.', 'err'); }
+    else if (ev.code === 1013) sysLine('Too many open terminal sessions on the server.', 'err');
+    else sysLine('Disconnected from the server. Press Reconnect.', 'err');
+  };
+  ws.onerror = () => {};
+}
+
+function onServer(m) {
+  switch (m.type) {
+    case 'output': feed(m.data, m.stream === 'err'); break;
+    case 'prompt':
+      flushPartial();
+      state.cwd = m.cwd; state.idle = true;
+      updatePrompt(); scrollDown();
+      break;
+    case 'clear': clearScreen(); break;
+    case 'status':
+      if (m.state === 'exited') {
+        state.idle = false; updatePrompt();
+        sysLine(`[${m.shell} exited with code ${m.code}] Pick a shell or press Reconnect to start a new session.`, 'err');
+      } else if (m.state === 'error') {
+        state.idle = false; updatePrompt();
+        sysLine(`Could not start ${m.shell}: ${m.message || 'unknown error'}`, 'err');
+      }
+      break;
+    case 'info': sysLine(m.message); break;
+    case 'completion': onCompletion(m); break;
+    default: break;
+  }
+}
+
+/* ---------------- Input handling ---------------- */
+function submit() {
+  const text = cmd.value;
+  if (!state.ws || state.ws.readyState !== 1) { sysLine('Not connected. Press Reconnect.', 'err'); return; }
+
+  if (state.idle) {
+    echoLine([promptNode()], text);
+    if (text.trim() && state.history[state.history.length - 1] !== text) {
+      state.history.push(text);
+      if (state.history.length > 300) state.history.shift();
+      store.set('history', JSON.stringify(state.history));
+    }
+  } else {
+    // A program is waiting for input: show its partial output + what was typed
+    const nodes = [];
+    while (partialEl.firstChild) nodes.push(partialEl.firstChild);
+    echoLine(nodes, text);
+  }
+
+  sendJSON({ type: 'input', data: text });
+  state.idle = false; updatePrompt();
+  state.hIdx = -1; state.draft = '';
+  cmd.value = '';
+  scrollDown();
+}
+
+function historyNav(delta) {
+  if (!state.history.length) return;
+  if (state.hIdx === -1) { if (delta > 0) return; state.draft = cmd.value; state.hIdx = state.history.length; }
+  state.hIdx = Math.max(0, Math.min(state.history.length, state.hIdx + delta));
+  cmd.value = state.hIdx === state.history.length ? state.draft : state.history[state.hIdx];
+  if (state.hIdx === state.history.length) state.hIdx = -1;
+  requestAnimationFrame(() => cmd.setSelectionRange(cmd.value.length, cmd.value.length));
+}
+
+function interrupt() {
+  if (!state.idle) {
+    sendJSON({ type: 'interrupt' });
+    appendText('^C', true);
+    newline();
+  } else {
+    // idle: discard the half-typed line, like a real console
+    echoLine([promptNode()], cmd.value + '^C');
+    cmd.value = ''; state.hIdx = -1;
+  }
+  scrollDown();
+}
+
+const hasSelection = () => {
+  const s = window.getSelection && window.getSelection().toString();
+  return !!s || (document.activeElement === cmd && cmd.selectionStart !== cmd.selectionEnd);
+};
+
+/* ---------------- Tab completion ---------------- */
+let tab = null;          // { items, before, after, idx, cycling } once a suggestion list is showing
+let tabReq = 0;
+let tabPending = null;   // { id, value, cursor } of the in-flight request
+
+function setValue(v, pos) {
+  cmd.value = v;
+  cmd.setSelectionRange(pos, pos);
+}
+
+function commonPrefix(items) {
+  let p = items[0].text;
+  for (const it of items) {
+    let i = 0;
+    while (i < p.length && i < it.text.length && p[i].toLowerCase() === it.text[i].toLowerCase()) i++;
+    p = p.slice(0, i);
+  }
+  return p;
+}
+
+function showSuggestions(items) {
+  flushPartial();
+  const row = document.createElement('div');
+  row.className = 'line sugg';
+  const MAX = 120;
+  for (const it of items.slice(0, MAX)) {
+    const s = document.createElement('span');
+    s.setAttribute('data-bidi', '');
+    s.setAttribute('dir', dirAttr());
+    if (it.dir) s.className = 'dir';
+    s.textContent = it.label;
+    row.appendChild(s);
+  }
+  if (items.length > MAX) {
+    const s = document.createElement('span');
+    s.textContent = `… +${items.length - MAX} more`;
+    row.appendChild(s);
+  }
+  screenEl.appendChild(row);
+  trimScreen();
+  scrollDown();
+}
+
+function onTab(back) {
+  if (!state.idle) return;                    // a program is reading input: Tab does nothing
+  if (tab && tab.cycling) { cycleTab(back ? -1 : 1); return; }
+  const id = ++tabReq;
+  tabPending = { id, value: cmd.value, cursor: cmd.selectionStart };
+  sendJSON({ type: 'complete', id, line: cmd.value, cursor: cmd.selectionStart });
+}
+
+function cycleTab(d) {
+  const n = tab.items.length;
+  tab.idx = tab.idx === -1 ? (d > 0 ? 0 : n - 1) : (tab.idx + d + n) % n;
+  const head = tab.before + tab.items[tab.idx].text;
+  setValue(head + tab.after, head.length);
+}
+
+function onCompletion(m) {
+  if (!tabPending || m.id !== tabPending.id || cmd.value !== tabPending.value) return; // stale
+  const { value, cursor } = tabPending;
+  tabPending = null;
+  const items = m.items || [];
+  if (!items.length) return;
+
+  const before = value.slice(0, m.start);
+  const after = value.slice(cursor);
+  const typed = value.slice(m.start, cursor);
+
+  if (items.length === 1) {                   // single match: finish it
+    const it = items[0];
+    const sp = !it.dir && !after.startsWith(' ') ? ' ' : '';
+    const head = before + it.text + sp;
+    setValue(head + after, head.length);
+    return;
+  }
+
+  const common = commonPrefix(items);         // several matches: extend to the shared prefix
+  if (common.length > typed.length) {
+    setValue(before + common + after, (before + common).length);
+    return;
+  }
+
+  showSuggestions(items);                     // nothing more to add: list them, next Tab cycles
+  tab = { items, before, after, idx: -1, cycling: true };
+}
+
+cmd.addEventListener('input', () => { tab = null; });
+
+cmd.addEventListener('keydown', (e) => {
+  if (e.isComposing || e.keyCode === 229) return; // IME (Arabic/other) composition in progress
+  if (e.key !== 'Tab' && !/^(Shift|Control|Alt|Meta)$/.test(e.key)) tab = null;
+  if (e.key === 'Enter') { e.preventDefault(); submit(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); historyNav(-1); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); historyNav(1); }
+  else if (e.key === 'Tab') { e.preventDefault(); onTab(e.shiftKey); }
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.isComposing) return;
+  if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'c' || e.key === 'C')) {
+    if (hasSelection()) return;           // normal copy
+    e.preventDefault(); interrupt(); return;
+  }
+  if (e.ctrlKey && !e.altKey && (e.key === 'l' || e.key === 'L')) { e.preventDefault(); clearScreen(); return; }
+  // typing anywhere focuses the input
+  const tag = e.target && e.target.tagName;
+  if (tag === 'SELECT' || tag === 'BUTTON' || tag === 'INPUT') return;
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.length === 1) cmd.focus();
+});
+
+term.addEventListener('mouseup', () => { if (!hasSelection()) cmd.focus(); });
+
+/* ---------------- Header controls ---------------- */
+shellSel.value = state.shell;
+dirSel.value = state.dir;
+themeSel.value = state.theme;
+
+shellSel.addEventListener('change', () => {
+  state.shell = shellSel.value; store.set('shell', state.shell);
+  clearScreen(); state.idle = false; state.cwd = ''; updatePrompt();
+  if (state.ws && state.ws.readyState === 1) sendJSON({ type: 'start', shell: state.shell });
+  else connect();
+  cmd.focus();
+});
+dirSel.addEventListener('change', () => { state.dir = dirSel.value; store.set('dir', state.dir); applyDir(); cmd.focus(); });
+themeSel.addEventListener('change', () => { state.theme = themeSel.value; store.set('theme', state.theme); applyTheme(); cmd.focus(); });
+
+$('btnInt').addEventListener('click', () => { interrupt(); cmd.focus(); });
+$('btnClear').addEventListener('click', () => { clearScreen(); cmd.focus(); });
+$('btnReconnect').addEventListener('click', () => {
+  if (state.needReload) { location.reload(); return; }
+  connect('— reconnected —');
+  cmd.focus();
+});
+
+/* ---------------- Boot ---------------- */
+applyTheme();
+applyDir();
+connect();
+cmd.focus();
+})();
+</script>
+</body>
+</html>
