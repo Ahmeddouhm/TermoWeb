@@ -358,8 +358,8 @@ async function completeLine(kind, cwd, line, cursor) {
   const items = found.slice(0, 200).map((f) => {
     const label = f.name + (f.isDir ? sep : '');
     const full = dirPart + label;
-    // folders keep the quote open so you can keep tabbing deeper
-    return { text: needQ ? '"' + full + (f.isDir ? '' : '"') : full, label, dir: f.isDir };
+    // the browser adds the closing quote, so the line is never left with an unterminated quote
+    return { text: needQ ? '"' + full : full, label, dir: f.isDir };
   });
   return { start: tokStart, items };
 }

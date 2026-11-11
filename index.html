@@ -563,6 +563,21 @@ function showSuggestions(items) {
   scrollDown();
 }
 
+// Builds the new input value for a chosen completion. A quoted path always gets its closing quote.
+// With `inside` (folders / shared prefix) the cursor stays just before that quote, so Tab keeps going deeper.
+function applyCompletion(before, text, after, inside, space) {
+  const quoted = text.startsWith('"');
+  const head = before + text;
+  if (quoted) {
+    const rest = after.startsWith('"') ? after.slice(1) : after;
+    if (inside) return { value: head + '"' + rest, pos: head.length };
+    const sp = space && !rest.startsWith(' ') ? ' ' : '';
+    return { value: head + '"' + sp + rest, pos: head.length + 1 + sp.length };
+  }
+  const sp = !inside && space && !after.startsWith(' ') ? ' ' : '';
+  return { value: head + sp + after, pos: head.length + sp.length };
+}
+
 function onTab(back) {
   if (!state.idle) return;                    // a program is reading input: Tab does nothing
   if (tab && tab.cycling) { cycleTab(back ? -1 : 1); return; }
@@ -574,8 +589,9 @@ function onTab(back) {
 function cycleTab(d) {
   const n = tab.items.length;
   tab.idx = tab.idx === -1 ? (d > 0 ? 0 : n - 1) : (tab.idx + d + n) % n;
-  const head = tab.before + tab.items[tab.idx].text;
-  setValue(head + tab.after, head.length);
+  const it = tab.items[tab.idx];
+  const r = applyCompletion(tab.before, it.text, tab.after, it.dir, false);
+  setValue(r.value, r.pos);
 }
 
 function onCompletion(m) {
@@ -591,15 +607,15 @@ function onCompletion(m) {
 
   if (items.length === 1) {                   // single match: finish it
     const it = items[0];
-    const sp = !it.dir && !after.startsWith(' ') ? ' ' : '';
-    const head = before + it.text + sp;
-    setValue(head + after, head.length);
+    const r = applyCompletion(before, it.text, after, it.dir, true);
+    setValue(r.value, r.pos);
     return;
   }
 
   const common = commonPrefix(items);         // several matches: extend to the shared prefix
   if (common.length > typed.length) {
-    setValue(before + common + after, (before + common).length);
+    const r = applyCompletion(before, common, after, true, false);
+    setValue(r.value, r.pos);
     return;
   }
 
